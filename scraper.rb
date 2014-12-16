@@ -7,7 +7,7 @@ def clean_whitespace(a)
   a.gsub(/[\r\n\t]/, ' ').squeeze(" ").strip
 end
 
-base_url = 'http://planning.mackay.qld.gov.au/masterview/Modules/Applicationmaster/'
+base_url = 'https://planning.mackay.qld.gov.au/masterview/Modules/Applicationmaster/'
 url = "#{base_url}default.aspx?page=found&1=thisweek" # add &6=T to see determined
 doc = Nokogiri::HTML(open(url))
 das = doc.xpath("//a[contains(@href,'&key=')]").collect do |approval_anchor|
