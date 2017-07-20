@@ -10,30 +10,7 @@ class Mechanize::Form
   end
 end
 
-
-case ENV['MORPH_PERIOD']
-  when 'lastmonth'
-    period = 'lastmonth'
-  when 'thismonth'
-    period = 'thismonth'
-  else
-    period = 'thisweek'
-end
-puts "Getting data in `" + period + "`, changable via MORPH_PERIOD variable"
-
-base_url = "https://planning.mackay.qld.gov.au/masterview/Modules/Applicationmaster/"
-url = base_url + "default.aspx?page=found&4a=443,444,445,446,487,555,556,557,558,559,560,564&6=F&1=" + period
-comment_url = "mailto:development.services@mackay.qld.gov.au"
-
-agent = Mechanize.new
-page = agent.get(url)
-
-i = 1
-page.search('div.rgNumPart a').each do |a|
-  puts "scraping page " + i.to_s
-  target, argument = a[:href].scan(/'([^']*)'/).flatten
-  page = page.form.postback target, argument
-
+def process_page(page, base_url, comment_url)
   page.search('tr.rgRow,tr.rgAltRow').each do |tr|
     record = {
       "council_reference" => tr.search('td')[1].inner_text.gsub("\r\n", "").strip,
@@ -52,7 +29,37 @@ page.search('div.rgNumPart a').each do |a|
     else
       puts "Skipping already saved record " + record['council_reference']
     end
-
   end
-  i = i + 1
+end
+
+
+case ENV['MORPH_PERIOD']
+  when 'lastmonth'
+    period = 'lastmonth'
+  when 'thismonth'
+    period = 'thismonth'
+  else
+    period = 'thisweek'
+end
+puts "Getting data in `" + period + "`, changable via MORPH_PERIOD variable"
+
+base_url = "https://planning.mackay.qld.gov.au/masterview/Modules/Applicationmaster/"
+url = base_url + "default.aspx?page=found&4a=443,444,445,446,487,555,556,557,558,559,560,564&6=F&1=" + period
+comment_url = "mailto:development.services@mackay.qld.gov.au"
+
+agent = Mechanize.new
+page = agent.get(url)
+
+if page.search('div.rgNumPart a').empty?
+  process_page(page, base_url, comment_url)
+else
+  i = 1
+  page.search('div.rgNumPart a').each do |a|
+    puts "scraping page " + i.to_s
+    target, argument = a[:href].scan(/'([^']*)'/).flatten
+    page = page.form.postback target, argument
+
+    process_page(page, base_url, comment_url)
+    i += 1
+  end
 end
