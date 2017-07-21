@@ -1,41 +1,65 @@
 require 'scraperwiki'
-require 'nokogiri'
-require 'open-uri'
-require 'date'
+require 'mechanize'
 
-def clean_whitespace(a)
-  a.gsub(/[\r\n\t]/, ' ').squeeze(" ").strip
+# Extending Mechanize Form to support doPostBack
+# http://scraperblog.blogspot.com.au/2012/10/asp-forms-with-dopostback-using-ruby.html
+class Mechanize::Form
+  def postback target, argument
+    self['__EVENTTARGET'], self['__EVENTARGUMENT'] = target, argument
+    submit
+  end
 end
 
-base_url = 'https://planning.mackay.qld.gov.au/masterview/Modules/Applicationmaster/'
-url = "#{base_url}default.aspx?page=found&1=thisweek" # add &6=T to see determined
-doc = Nokogiri::HTML(open(url))
-das = doc.xpath("//a[contains(@href,'&key=')]").collect do |approval_anchor|
-  approval_link = "#{base_url}#{approval_anchor['href']}"
-  approval_page = Nokogiri::HTML(open(approval_link))
-  page_info = {}
-  page_info['council_reference'] = $1 if clean_whitespace(approval_page.at_css('.ControlHeader').inner_text) =~ /([A-Z]+ - \d+ - \d+)/
-  page_info['info_url'] = approval_link
-  page_info['description'] = $1 if approval_page.at_css('#lblDetails').inner_text.strip =~ /Description: (.+)Submitted:/
-  page_info['date_received'] = Date.strptime($1.strip, '%d/%m/%Y').to_s if approval_page.at_css('#lblDetails').inner_text.strip =~ /Submitted: (.+)/
-  page_info['address'] = clean_whitespace(approval_page.at_css('#lblProp').inner_text)
-  page_info['date_scraped'] = Date.today.to_s
-  # Lazily set a generic email as PlanningAlerts is just going to enable commenting
-  #page_info['comment_url'] = approval_page.at_css('.ControlContent').at_xpath("//a[contains(@href, 'mailto:')]")['href']
-  page_info['comment_url'] = "mailto:development.services@mackay.qld.gov.au"
-  
-  page_info
+def process_page(page, base_url, comment_url)
+  page.search('tr.rgRow,tr.rgAltRow').each do |tr|
+    record = {
+      "council_reference" => tr.search('td')[1].inner_text.gsub("\r\n", "").strip,
+      "address" => tr.search('td')[3].inner_html.gsub("\r", " ").strip.split("<br>")[0],
+      "description" => tr.search('td')[3].inner_html.gsub("\r", " ").strip.split("<br>")[1],
+      "info_url" => base_url + tr.search('td').at('a')["href"].to_s,
+      "comment_url" => comment_url,
+      "date_scraped" => Date.today.to_s,
+      "date_received" => Date.parse(tr.search('td')[2].inner_text.gsub("\r\n", "").strip).to_s,
+    }
+
+    if (ScraperWiki.select("* from data where `council_reference`='#{record['council_reference']}'").empty? rescue true)
+      puts "Saving record " + record['council_reference'] + " - " + record['address']
+#       puts record
+      ScraperWiki.save_sqlite(['council_reference'], record)
+    else
+      puts "Skipping already saved record " + record['council_reference']
+    end
+  end
 end
 
-das.each do |record|
-   if record['address'] == 'No properties recorded against this application.'
-      p "Skipping #{record['council_reference']} as no address"
-      next
-   end
 
-   if ScraperWiki.select("* from data where `council_reference`='#{record['council_reference']}'").empty? 
-     ScraperWiki.save_sqlite(['council_reference'], record)
-   else
-     puts "Skipping already saved record " + record['council_reference']
-   end
+case ENV['MORPH_PERIOD']
+  when 'lastmonth'
+    period = 'lastmonth'
+  when 'thismonth'
+    period = 'thismonth'
+  else
+    period = 'thisweek'
+end
+puts "Getting data in `" + period + "`, changable via MORPH_PERIOD variable"
+
+base_url = "https://planning.mackay.qld.gov.au/masterview/Modules/Applicationmaster/"
+url = base_url + "default.aspx?page=found&4a=443,444,445,446,487,555,556,557,558,559,560,564&6=F&1=" + period
+comment_url = "mailto:development.services@mackay.qld.gov.au"
+
+agent = Mechanize.new
+page = agent.get(url)
+
+if page.search('div.rgNumPart a').empty?
+  process_page(page, base_url, comment_url)
+else
+  i = 1
+  page.search('div.rgNumPart a').each do |a|
+    puts "scraping page " + i.to_s
+    target, argument = a[:href].scan(/'([^']*)'/).flatten
+    page = page.form.postback target, argument
+
+    process_page(page, base_url, comment_url)
+    i += 1
+  end
 end
