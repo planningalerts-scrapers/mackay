@@ -22,13 +22,9 @@ def process_page(page, base_url, comment_url)
       "date_received" => Date.parse(tr.search('td')[2].inner_text.gsub("\r\n", "").strip).to_s,
     }
 
-    if (ScraperWiki.select("* from data where `council_reference`='#{record['council_reference']}'").empty? rescue true)
-      puts "Saving record " + record['council_reference'] + " - " + record['address']
+    puts "Saving record " + record['council_reference'] + " - " + record['address']
 #       puts record
-      ScraperWiki.save_sqlite(['council_reference'], record)
-    else
-      puts "Skipping already saved record " + record['council_reference']
-    end
+    ScraperWiki.save_sqlite(['council_reference'], record)
   end
 end
 
